@@ -9,7 +9,7 @@ import argparse
 class sample_obj:
     def __init__(self):
         self.path = 'dataset/Tmall'
-        self.max_epoch = 1
+        self.max_epoch = 2
 
 #args = parser.parse_args()
 args = sample_obj()

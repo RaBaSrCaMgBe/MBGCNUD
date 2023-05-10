@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-relation = ['buy','cart','click','collect']
+'''relation = ['buy','cart','click','collect']
 for aa in relation:
     index = []
     with open('dataset/Tmall/'+str(aa)+'.txt') as f:
@@ -20,19 +20,19 @@ for aa in relation:
     b = torch.LongTensor(b)
     c = torch.sparse.FloatTensor(b.t(), torch.ones(b.shape[0],dtype=torch.int), torch.Size([3000,3000]))
     print(c.shape)
-    torch.save(c.to_dense(), 'dataset/Tmall/item_'+str(aa)+'.pth')
+    torch.save(c.to_dense(), 'dataset/Tmall/item_'+str(aa)+'.pth')'''
 
-'''relation = ['buy','cart','click','collect','test','validation','train']
+relation = ['buy','cart','click','collect','test','validation','train']
 for i in relation:
     index = []
     with open('dataset/Tmall/'+str(i)+'.txt') as f:
         data = f.readlines()
         for row in data:
             user, item = row.strip().split()
-            if int(user) >= 10000 or int(item) >= 3000:
+            if int(user) >= 3000 or int(item) >= 3000:
                 continue
             else:
                 index.append([user, item])
     with open('dataset/Tmall/new/'+str(i)+'.txt',mode='w+') as f:
         for user, item in index:
-            f.write(user+' '+item+'\n')'''
+            f.write(user+' '+item+'\n')

@@ -1,25 +1,20 @@
 import torch
-import numpy as np
-import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
 from time import time
 from tqdm import tqdm
-import os
-import sys
-from loss import bprloss
+from loss import bprloss, bprlosswithreg
 from dataset import TrainDataset, TestDataset
-from utils import EarlyStopManager, ModelSelector, VisManager
+from utils import EarlyStopManager, ModelSelector
 from metrics import Recall, NDCG, MRR
 
 BIGNUM = 1e8
 
 class TrainManager(object):
     #用来训练模型的模块
-    def __init__(self, flags_obj, vm, cm):
+    def __init__(self, flags_obj, cm):
         self.flags_obj = flags_obj
-        self.vm = vm
         self.cm = cm
         self.es = EarlyStopManager(flags_obj)
         self.data_set_init(flags_obj)
@@ -55,10 +50,8 @@ class TrainManager(object):
 
         for epoch in range(self.flags_obj.epoch):
             self.train_one_epoch()
-            if self.flags_obj.model=='MBGCN':
+            if self.flags_obj.model in ['MBGCN', 'MBGCNUD']:
                 self.multi3_validation()
-            else:
-                self.validation()
             self.update_leaderboard(epoch)
             self.trainloader.dataset.newit()
 
@@ -76,43 +69,16 @@ class TrainManager(object):
             users, items = data
             self.opt.zero_grad()
             modelout = self.model(users.to(self.device), items.to(self.device))
-            loss = bprloss(modelout, batch_size=self.trainloader.batch_size, loss_mode=self.flags_obj.loss_mode)
+            if self.flags_obj.model=='MBGCN':
+                loss = bprloss(modelout, batch_size=self.trainloader.batch_size, loss_mode=self.flags_obj.loss_mode)
+            elif self.flags_obj.model=='MBGCNUD':
+                loss = bprlosswithreg(modelout, batch_size=self.trainloader.batch_size, loss_mode=self.flags_obj.loss_mode)
             total_loss += loss
             loss.backward()
             self.opt.step()
 
         time_interval = time()-start
 
-        self.vm.update_line('epoch loss', total_loss)
-        self.vm.update_line('train time cost', time_interval)
-
-    def validation(self):
-        
-        self.model.eval()
-        for metric in self.metric_dict:
-            self.metric_dict[metric].start()
-        start = time()
-        with torch.no_grad():
-            propagate_result = self.model.propagate(task='test')
-            for i, data in enumerate(tqdm(self.validationloader)):
-                users, ground_truth, train_mask = data
-                pred = self.model.evaluate(propagate_result, users.to(self.device))
-
-                pred -= BIGNUM * train_mask.to(self.device)
-
-                for metric in self.metric_dict:
-                    self.metric_dict[metric](pred, ground_truth.to(self.device))
-
-        stop = time()
-        time_interval = stop - start
-        self.vm.update_line('validation time cost', time_interval)
-
-        for metric in self.metric_dict:
-            self.metric_dict[metric].stop()
-        self.vm.update_metrics(self.metric_dict)
-        
-        for metric in self.metric_dict:
-            print('{}:{}'.format(metric, self.metric_dict[metric]._metric))
 
     def multi3_validation(self):
         
@@ -132,11 +98,9 @@ class TrainManager(object):
 
         stop = time()
         time_interval = stop - start
-        self.vm.update_line('validation time cost', time_interval)
 
         for metric in self.metric_dict:
             self.metric_dict[metric].stop()
-        self.vm.update_metrics(self.metric_dict)
         
         for metric in self.metric_dict:
             print('{}:{}'.format(metric, self.metric_dict[metric]._metric))
@@ -145,7 +109,6 @@ class TrainManager(object):
 
         self.max_metric = -1.0
         self.max_epoch = -1
-        self.leaderboard = self.vm.new_text_window('leaderboard')
 
     def update_leaderboard(self, epoch):
 
@@ -154,8 +117,7 @@ class TrainManager(object):
         if metric > self.max_metric:
             self.max_metric = metric
             self.max_epoch = epoch
-
-            self.vm.append_text('New Record! {} @ epoch {}!'.format(metric, epoch), self.leaderboard)
+            print('New Record! {} @ epoch {}!'.format(metric, epoch))
             self.cm.model_save(self.model)
 
     def test(self):
@@ -163,19 +125,18 @@ class TrainManager(object):
         best_model = ModelSelector.getModel(self.flags_obj, self.trainset, self.flags_obj.model, self.device).to(self.device)
         self.cm.model_load(best_model)
 
-        self.model.eval()
+        best_model.eval()
         for metric in self.metric_dict:
             self.metric_dict[metric].start()
         with torch.no_grad():
             for users, ground_truth, train_mask in self.testloader:
-                pred = self.model.evaluate(users.to(self.device))
+                pred = best_model.evaluate(users.to(self.device))
                 pred -= BIGNUM * train_mask.to(self.device)
                 for metric in self.metric_dict:
                     self.metric_dict[metric](pred, ground_truth.to(self.device))
 
         for metric in self.metric_dict:
             self.metric_dict[metric].stop()
-        
-        self.vm.append_text('Final Test Result:', self.leaderboard)
+        print('Final Test Result:')
         for metric in self.metric_dict:
-            self.vm.append_text(metric+': {}'.format(self.metric_dict[metric]._metric),self.leaderboard)
+            print(metric+': {}'.format(self.metric_dict[metric]._metric))
